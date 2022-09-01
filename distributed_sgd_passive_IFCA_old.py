@@ -169,6 +169,7 @@ def train_lfw(
     n_workers=2,
     n_clusters=3,
     num_iteration=3000,
+    warm_up_iters=100,
     victim_all_nonprop=False,
     balance=False,
     k=5,
@@ -200,10 +201,21 @@ def train_lfw(
     # if n_workers > 2:
     #     filename += '_n{}'.format(n_workers)
 
-    train_multi_task_ps((x, y, prop), input_shape=(3, 62, 47), p_prop=p_prop,  # balance=balance,
-                        filename=filename, n_workers=n_workers, n_clusters=n_clusters, k=k,
-                        num_iteration=num_iteration, victim_all_nonprop=victim_all_nonprop,
-                        train_size=train_size, cuda=cuda, seed=seed)
+    train_multi_task_ps(
+        (x, y, prop),
+        input_shape=(3, 62, 47),
+        p_prop=p_prop,
+        filename=filename,
+        n_workers=n_workers,
+        n_clusters=n_clusters,
+        k=k,
+        num_iteration=num_iteration,
+        victim_all_nonprop=victim_all_nonprop,
+        train_size=train_size,
+        cuda=cuda,
+        seed=seed,
+        warm_up_iters=warm_up_iters
+    )
 
     return filename
 

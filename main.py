@@ -23,6 +23,7 @@ if __name__ == '__main__':
     parser.add_argument('--b', help='balance', action='store_true')
     parser.add_argument('-k', help='k', type=int, default=5)
     parser.add_argument('-s', help='seed (-1 for time-dependent seed)', type=int, default=12345)
+    parser.add_argument('--warmup', help='warmup iteration', type=int, default=100)
     parser.add_argument('--ts', help='Train size', type=float, default=0.3)
     parser.add_argument('-c', help='CUDA num (-1 for CPU-only)', default=-1)
 
@@ -39,8 +40,22 @@ if __name__ == '__main__':
     wandb.config.update(args)
 
     start_time = time.time()
-    filename = train_lfw(args.t, args.a, args.pi, args.pp, args.nw, args.nc, args.ni, args.van, args.b, args.k, args.ts, args.c,
-              seed)
+    filename = train_lfw(
+        args.t,
+        args.a,
+        args.pi,
+        args.pp,
+        args.nw,
+        args.nc,
+        args.ni,
+        args.van,
+        args.b,
+        args.k,
+        args.ts,
+        args.c,
+        seed,
+        warm_up_iters=args.warmup
+    )
     evaluate_lfw(filename)
     duration = (time.time() - start_time)
 
