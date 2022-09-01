@@ -25,7 +25,6 @@ def add_nonprop(test_prop_indices, nonprop_indices, p_prop=0.7):
     nonprop_indices = np.setdiff1d(nonprop_indices, sampled_non_prop)  # left nonprop
     return sampled_non_prop, nonprop_indices
 
-
 def split_data_hetero(X, y, n_workers, alpha=0.5, min_size_limit=60):
 
     splitted_X = []
@@ -83,6 +82,7 @@ def prepare_data_biased(data, train_size=0.5, n_workers=5, p_prop=0.5, shuffle=T
         p = p[indices]
 
     y_cat = np.asarray(list(zip(y, p)))
+    # train and test have same proportion of class proportion
     X_train, X_test, y_train, y_test = train_test_split(X, y_cat, random_state=seed, test_size=test_size, stratify=y)
     print("Training data size {}, testing data size {}".format(len(X_train), len(X_test)))
 
@@ -96,6 +96,7 @@ def prepare_data_biased(data, train_size=0.5, n_workers=5, p_prop=0.5, shuffle=T
     len_p = len(prop_indices)
     prop_train_size = int(len_p * train_size)
 
+    # attacker and victim get different data of prop
     train_prop_indices = np.random.choice(prop_indices, prop_train_size, replace=False)  # prop data for attacker
     victim_prop_indices = np.setdiff1d(prop_indices, train_prop_indices)  # prop data for victim
 

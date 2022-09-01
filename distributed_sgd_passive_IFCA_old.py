@@ -510,12 +510,15 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = pickle.load(f)
             logger.info("Temp dataset loaded!")
     else:
-        splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = prepare_data_biased(data, train_size,
-                                                                                                       n_workers,
-                                                                                                       seed=seed,
-                                                                                                       # non-iid dataset 생성 --> worker별로 데이터셋이 할당됨
-                                                                                                       victim_all_nonprop=victim_all_nonprop,
-                                                                                                       p_prop=p_prop)
+        splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = prepare_data_biased(
+            data,
+            train_size,
+            n_workers,
+            seed=seed,
+            # non-iid dataset 생성 --> worker별로 데이터셋이 할당됨
+            victim_all_nonprop=victim_all_nonprop,
+            p_prop=p_prop
+        )
         with open(file_name, 'wb') as f:
             pickle.dump((splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test), f)
             logger.info("Temp dataset dumped!")
@@ -862,7 +865,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
             start_time = time.time()
 
-    np.savez(SAVE_DIR + "{}.npz".format(filename + '_passive_IFCA'),
+    np.savez(SAVE_DIR + f"{filename}.npz",
              train_pg=train_pg, train_npg=train_npg, test_pg=test_pg, test_npg=test_npg,
              train_cluster_pg=train_cluster_pg, train_cluster_npg=train_cluster_npg,
              test_cluster_pg=test_cluster_pg, test_cluster_npg=test_cluster_npg)
@@ -877,7 +880,7 @@ if __name__ == '__main__':
     parser.add_argument('-nw', help='# of workers', type=int, default=30)
     parser.add_argument('-nc', help='# of clusters', type=int, default=3)
     parser.add_argument('-ni', help='# of iterations', type=int, default=6000)
-    parser.add_argument('--van', help='victim_all_nonproperty', action='store_true')
+    parser.add_argument('--van', help='victim_all_nonproperty', action='store_true') # default false
     parser.add_argument('--b', help='balance', action='store_true')
     parser.add_argument('-k', help='k', type=int, default=5)
     parser.add_argument('-s', help='seed (-1 for time-dependent seed)', type=int, default=12345)
