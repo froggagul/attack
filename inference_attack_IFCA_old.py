@@ -13,38 +13,13 @@ from datetime import datetime
 
 SAVE_DIR = './grads/'
 
-# 로깅 설정
-# 폴더 생성
-os.makedirs("./log_2", exist_ok=True)
-
-# logger instance 생성
-logger = logging.getLogger(__name__)
-
-# formatter 생성
-formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
-
-# handler 생성 (stream, file)
-streamHandler = logging.StreamHandler()
-fileHandler = logging.FileHandler("./log_2/" + datetime.now().strftime('log_attack_%Y_%m_%d_%H_%M.log'))
-
-# logger instance에 fomatter 설정
-streamHandler.setFormatter(formatter)
-fileHandler.setFormatter(formatter)
-
-# logger instance에 handler 설정
-logger.addHandler(streamHandler)
-logger.addHandler(fileHandler)
-
-# logger instnace로 log 찍기
-logger.setLevel(level=logging.INFO)
-
 def inference_attack(train_pg, train_npg, test_pg, test_npg, norm=True, scale=True):
 
     train_pg = np.asarray(train_pg)
     train_npg = np.asarray(train_npg)
     test_pg = np.asarray(test_pg)
     test_npg = np.asarray(test_npg)
-    logger.info(("train ps-nps {}-{} ** test ps-nps {}-{}".format(train_pg.shape, train_npg.shape, test_pg.shape,
+    print(("train ps-nps {}-{} ** test ps-nps {}-{}".format(train_pg.shape, train_npg.shape, test_pg.shape,
                                                            test_npg.shape)))
 
     X_train = np.vstack([train_pg, train_npg])
@@ -71,8 +46,8 @@ def inference_attack(train_pg, train_npg, test_pg, test_npg, norm=True, scale=Tr
     clf.fit(X_train, y_train)
     y_score = clf.predict_proba(X_test)[:, 1]
     y_pred = clf.predict(X_test)
-    logger.info('\n' + classification_report(y_true=y_test, y_pred=y_pred))
-    logger.info('AUC: %s', roc_auc_score(y_true=y_test, y_score=y_score))
+    print('\n' + classification_report(y_true=y_test, y_pred=y_pred))
+    print('AUC: %s', roc_auc_score(y_true=y_test, y_score=y_score))
 
 def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, scale=True):
 
@@ -99,7 +74,7 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
         n_test_pg += len(raw_test_pg[j])
         n_test_npg += len(raw_test_npg[j])
 
-    logger.info(("train ps-nps {}-{} ** test ps-nps {}-{}".format(n_train_pg, n_train_npg, n_test_pg,
+    print(("train ps-nps {}-{} ** test ps-nps {}-{}".format(n_train_pg, n_train_npg, n_test_pg,
                                                            n_test_npg)))
 
     # prescale if needed
@@ -195,8 +170,8 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
         final_score.append(max_score)
         final_pred.append(score_pred[max_index][data])
 
-    logger.info('\n' + classification_report(y_true=y_test_all, y_pred=final_pred))
-    logger.info('AUC: %s', roc_auc_score(y_true=y_test_all, y_score=final_score))
+    print('\n' + classification_report(y_true=y_test_all, y_pred=final_pred))
+    print('AUC: %s', roc_auc_score(y_true=y_test_all, y_score=final_score))
 
     # method 2: train single RF with merged data
     X_train_all = []
@@ -242,8 +217,8 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
     y_score = clf.predict_proba(X_test)[:, 1]
     y_pred = clf.predict(X_test)
 
-    logger.info('\n' + classification_report(y_true=y_test_all, y_pred=y_pred))
-    logger.info('AUC: %s', roc_auc_score(y_true=y_test_all, y_score=y_score))
+    print('\n' + classification_report(y_true=y_test_all, y_pred=y_pred))
+    print('AUC: %s', roc_auc_score(y_true=y_test_all, y_score=y_score))
 
 
 def evaluate_lfw(filename):

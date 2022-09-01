@@ -34,32 +34,6 @@ if not os.path.exists(SAVE_DIR):
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-# 로깅 설정
-# 폴더 생성
-os.makedirs("./log_1", exist_ok=True)
-
-# logger instance 생성
-logger = logging.getLogger(__name__)
-
-# formatter 생성
-formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
-
-# handler 생성 (stream, file)
-streamHandler = logging.StreamHandler()
-fileHandler = logging.FileHandler("./log_1/" + datetime.now().strftime('log_fl_%Y_%m_%d_%H_%M.log'))
-
-# logger instance에 fomatter 설정
-streamHandler.setFormatter(formatter)
-fileHandler.setFormatter(formatter)
-
-# logger instance에 handler 설정
-logger.addHandler(streamHandler)
-logger.addHandler(fileHandler)
-
-# logger instnace로 log 찍기
-logger.setLevel(level=logging.INFO)
-
-
 def np_to_one_hot(targets, classes):  # 정수 numpy to one-hot encoding tensor
     targets_tensor = torch.from_numpy(targets.astype(np.int64))
     targets = torch.zeros(targets.shape[0], classes).scatter_(1, targets_tensor.unsqueeze(1), 1.0)
@@ -182,7 +156,7 @@ def train_lfw(
     # x : img, y : task label, prop: attr label
     prop_dict = MULTI_ATTRS[attr] if attr in MULTI_ATTRS else BINARY_ATTRS[attr]
 
-    logger.info('Training {} and infering {} property {} with {} data'.format(task, attr, prop_dict[prop_id], len(x)))
+    print('Training {} and infering {} property {} with {} data'.format(task, attr, prop_dict[prop_id], len(x)))
 
     x = np.asarray(x, dtype=np.float32)
     y = np.asarray(y, dtype=np.int32)
@@ -241,7 +215,7 @@ def mix_inf_data(p_inputs, p_targets, np_inputs, np_targets, batchsize,
     p_batchsize = int(mix_p * batchsize)
     np_batchsize = batchsize - p_batchsize
 
-    logger.info('Mixing {} prop data with {} non prop data'.format(p_batchsize, np_batchsize))
+    print('Mixing {} prop data with {} non prop data'.format(p_batchsize, np_batchsize))
 
     p_gen = inf_data(p_inputs, p_targets, p_batchsize, shuffle=True)
     np_gen = inf_data(np_inputs, np_targets, np_batchsize, shuffle=True)
@@ -414,7 +388,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
     if os.path.exists(file_name):
         with open(file_name, 'rb') as f:
             splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = pickle.load(f)
-            logger.info("Temp dataset loaded!")
+            print("Temp dataset loaded!")
     else:
         splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = prepare_data_biased(
             data,
@@ -427,7 +401,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
         )
         with open(file_name, 'wb') as f:
             pickle.dump((splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test), f)
-            logger.info("Temp dataset dumped!")
+            print("Temp dataset dumped!")
 
     p_test = y_test[:, 1]
     y_test = y_test[:, 0]
@@ -475,7 +449,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             data_gen = inf_data(splitted_X[i], split_y[:, 0], y_b=split_y[:, 1], batchsize=32, shuffle=True)
             data_gens.append(data_gen)
 
-            logger.info('Participant {} with {} data'.format(i, len(splitted_X[i])))
+            print('Participant {} with {} data'.format(i, len(splitted_X[i])))
         elif i == victim_id:  # victim
             vic_X = np.vstack([splitted_X[i][0], splitted_X[i][1]])
             vic_y = np.concatenate([splitted_y[i][0][:, 0], splitted_y[i][1][:, 0]])
@@ -486,12 +460,12 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             data_gen_np = inf_data(splitted_X[i][1], splitted_y[i][1][:, 0], batchsize=32, shuffle=True)
 
             data_gens.append(data_gen)
-            logger.info('Participant {} with {} data'.format(i, len(splitted_X[i][0]) + len(splitted_X[i][1])))
+            print('Participant {} with {} data'.format(i, len(splitted_X[i][0]) + len(splitted_X[i][1])))
         else:
             data_gen = inf_data(splitted_X[i], splitted_y[i][:, 0], batchsize=32, shuffle=True)
             data_gens.append(data_gen)
 
-            logger.info('Participant {} with {} data'.format(i, len(splitted_X[i])))
+            print('Participant {} with {} data'.format(i, len(splitted_X[i])))
 
         network = build_worker(input_shape, classes=classes, lr=lr, device=device)  # worker들 생성
         worker_networks.append(network)
@@ -547,7 +521,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
     nonprop_indices = indices[p_test == 0]
     n_nonprop = len(nonprop_indices)
 
-    logger.info('Attacker prop data {}, non prop data {}'.format(len(train_prop_indices), n_nonprop))
+    print('Attacker prop data {}, non prop data {}'.format(len(train_prop_indices), n_nonprop))
     train_nonprop_gen = inf_data(X_test[nonprop_indices], y_test[nonprop_indices], 32, shuffle=True)
 
     train_mix_gens = []  # 학습용 aggregated gradient를 생성할때 다양한 property distribution을 가진 상황을 가정하여 만든 data generator
@@ -558,7 +532,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
     start_time = time.time()
     for it in range(num_iteration):  # stages 시작
-        logger.info("Cur iteration: %d", it)
+        print("Cur iteration: %d", it)
 
         aggr_grad = []
         aggr_grad_cluster = []
@@ -627,7 +601,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
             min_loss = min(loss_list)
             min_index = loss_list.index(min_loss)  # 가장 loss가 낮은 모델에 대해서 update
-            # logger.info("Index: %d", min_index)
+            # print("Index: %d", min_index)
 
             if i != attacker_id:
                 aggr_grad_cluster[min_index].append(grads_list[min_index])
@@ -743,17 +717,17 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                         pred_list.append(pred)
                     min_loss = min(loss_list)
                     min_index = loss_list.index(min_loss)
-                    # logger.info("Val Index: %d", min_index)
+                    # print("Val Index: %d", min_index)
                     pred = pred_list[min_index]
 
                     y_max_scores, y_max_idx = pred.max(dim=1)
                     acc = (y == y_max_idx).sum() / y.size(0)
                     val_IFCA_acc += acc
 
-            logger.info("Iteration {} of {} took {:.3f}s\n".format(it + 1, num_iteration,
+            print("Iteration {} of {} took {:.3f}s\n".format(it + 1, num_iteration,
                                                                    time.time() - start_time))
-            logger.info("  test accuracy:\t\t{:.2f} %\n".format(val_acc / val_batches * 100))
-            logger.info("  IFCA test accuracy:\t\t{:.2f} %\n".format(val_IFCA_acc / val_batches * 100))
+            print("  test accuracy:\t\t{:.2f} %\n".format(val_acc / val_batches * 100))
+            print("  IFCA test accuracy:\t\t{:.2f} %\n".format(val_IFCA_acc / val_batches * 100))
 
             network_global.train()
             for j in range(n_clusters):
@@ -808,4 +782,4 @@ if __name__ == '__main__':
     duration = (time.time() - start_time)
     # wandb.log({"loss": loss})
 
-    wandb.log("SGD ended in %0.2f hour (%.3f sec) " % (duration / float(3600), duration))
+    # wandb.log("SGD ended in %0.2f hour (%.3f sec) " % (duration / float(3600), duration))
