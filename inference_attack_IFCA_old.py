@@ -8,6 +8,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 import logging
 from datetime import datetime
+import wandb
 
 # 저장 디렉토리
 
@@ -47,6 +48,10 @@ def inference_attack(train_pg, train_npg, test_pg, test_npg, norm=True, scale=Tr
     y_score = clf.predict_proba(X_test)[:, 1]
     y_pred = clf.predict(X_test)
     print('\n' + classification_report(y_true=y_test, y_pred=y_pred))
+    wandb.log({
+        "type": "inference_attack",
+        "AUC": roc_auc_score(y_true=y_test, y_score=y_score),
+    })
     print('AUC: %s', roc_auc_score(y_true=y_test, y_score=y_score))
 
 def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, scale=True):
@@ -172,6 +177,11 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
 
     print('\n' + classification_report(y_true=y_test_all, y_pred=final_pred))
     print('AUC: %s', roc_auc_score(y_true=y_test_all, y_score=final_score))
+    wandb.log({
+        "type": "inference_attack",
+        "AUC": roc_auc_score(y_true=y_test, y_score=y_score),
+    })
+
 
     # method 2: train single RF with merged data
     X_train_all = []
@@ -218,8 +228,11 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
     y_pred = clf.predict(X_test)
 
     print('\n' + classification_report(y_true=y_test_all, y_pred=y_pred))
+    wandb.log({
+        "type": "inference_attack_merged",
+        "AUC": roc_auc_score(y_true=y_test_all, y_score=y_score),
+    })
     print('AUC: %s', roc_auc_score(y_true=y_test_all, y_score=y_score))
-
 
 def evaluate_lfw(filename):
     # filename = "lfw_psMT_{}_{}_{}_alpha{}_k{}_nc{}_n{}_passive_IFCA".format(task, attr, prop_id, 0, k, 3, n_workers)

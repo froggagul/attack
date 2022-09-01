@@ -728,7 +728,11 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                                                                    time.time() - start_time))
             print("  test accuracy:\t\t{:.2f} %\n".format(val_acc / val_batches * 100))
             print("  IFCA test accuracy:\t\t{:.2f} %\n".format(val_IFCA_acc / val_batches * 100))
-
+            wandb.log({
+                "test_accuracy": val_acc / val_batches * 100,
+                "ifca_test_accuracy": val_IFCA_acc / val_batches * 100,
+                "epoch": it,
+            })
             network_global.train()
             for j in range(n_clusters):
                 cluster_networks[j].train()
