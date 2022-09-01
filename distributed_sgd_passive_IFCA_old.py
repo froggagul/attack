@@ -340,112 +340,6 @@ def gradient_getter_with_gen_multi(data_gen1, data_gen2, p_g, fn, device='cpu', 
 
         p_g.append(pgs)
 
-def gradient_getter_with_gen_multi_cluster(data_gen1, data_gen2, p_g, np_g, fns, exists_prop, device='cpu', iters=10,
-                                   n_workers=5, n_clusters=3):  # train용 gradient를 생성하기 위해 FL을 emulate함 (cluster FL이 적용되도록 추가 수정 필요)
-
-    for j in range(n_clusters):
-        fns[j].eval()
-
-    for _ in range(iters):
-
-        # data generation
-        xx_1, yy_1 = next(data_gen1)
-        xx_2 = []
-        yy_2 = []
-        for _ in range(n_workers - 2):
-            xx, yy = next(data_gen2)
-            xx_2.append(xx)
-            yy_2.append(yy)
-
-        # victim
-        cur_xx = torch.from_numpy(xx_1).to(device)
-        ptargets = torch.from_numpy(yy_1).to(dtype=torch.long)
-        loss_list = []
-        pgs_list = []
-
-        for j in range(n_clusters):
-            fn = fns[j]
-            fn.optimizer.zero_grad()
-            presult = fn(cur_xx).cpu()
-
-            loss = fn.criterion(presult, ptargets)
-            loss.backward()
-            loss_list.append(loss.item())
-
-            temp_pgs = {}
-            for name, param in fn.named_parameters():
-                if param.requires_grad:
-                    temp_pgs[name] = param.grad.cpu().data
-            pgs_list.append(temp_pgs)
-
-        min_loss = min(loss_list)
-        victim_index = loss_list.index(min_loss)
-
-        for j in range(n_clusters):
-            cur_pgs = pgs_list[j]
-            if isinstance(cur_pgs, dict):
-                for key in cur_pgs:
-                    cur_pgs[key] = np.asarray(cur_pgs[key])
-            else:
-                cur_pgs = np.asarray(cur_pgs).flatten()
-
-            if j != victim_index:
-                for tkey in cur_pgs.keys():
-                    cur_pgs[tkey] = np.zeros(shape=cur_pgs[tkey].shape, dtype=cur_pgs[tkey].dtype)
-
-        for i in range(n_workers - 2):
-            xx = xx_2[i]
-            yy = yy_2[i]
-            cur_xx = torch.from_numpy(xx).to(device)
-            nptargets = torch.from_numpy(yy).to(dtype=torch.long)
-            loss_list = []
-            npgs_list = []
-
-            for j in range(n_clusters):
-                fn = fns[j]
-                fn.optimizer.zero_grad()
-                npresult = fn(cur_xx).cpu()
-
-                loss = fn.criterion(npresult, nptargets)
-                loss.backward()
-                loss_list.append(loss.item())
-
-                temp_npgs = {}
-                for name, param in fn.named_parameters():
-                    if param.requires_grad:
-                        temp_npgs[name] = param.grad.cpu().data
-                npgs_list.append(temp_npgs)
-
-            min_loss = min(loss_list)
-            min_index = loss_list.index(min_loss)
-
-            npgs = npgs_list[min_index]
-            if isinstance(npgs, dict):
-                for key in npgs:
-                    pgs_list[min_index][key] += np.asarray(npgs[key])
-            else:
-                npgs = np.asarray(npgs).flatten()
-                pgs_list[min_index] += npgs
-
-        for j in range(n_clusters):
-            pgs = pgs_list[j]
-            if isinstance(pgs, dict):
-                pgs = collect_grads(pgs)
-
-            if not np.any(pgs):
-                continue
-
-            if exists_prop:
-                if j == victim_index:
-                    p_g[j].append(pgs)
-                else:
-                    np_g[j].append(pgs)
-            else:
-                np_g[j].append(pgs)
-
-    for j in range(n_clusters):
-        fns[j].train()
-
 
 def collect_grads(grads_dict, avg_pool=False,
                   pool_thresh=5000):  # convolution gradient를 하나의 vector로 만듬. 너무 크면 pooling을 적용해서 크기를 줄인다.
@@ -614,7 +508,6 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
         train_cluster_npg.append([])
         test_cluster_pg.append([])
         test_cluster_npg.append([])
-    cluster_victim_list = []
 
     X, y, _ = data
 
@@ -734,13 +627,12 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             cluster_global_index.append(min_index)
             cluster_global_isize.append(inputs.shape[0])
 
-        for i in range(n_workers): # update clustered global models
+        for i in range(n_workers):  # update clustered global models
             w_index = cluster_global_index[i]
-            update_global(cluster_params[w_index], cluster_global_grads[i], lr * 32, cluster_global_isize[i])  # multiply with batch size (too small learning rate)
+            update_global(cluster_params[w_index], cluster_global_grads[i], lr * 32, cluster_global_isize[i])
 
         warm_up_iters = 100
         if it >= warm_up_iters:
-
             test_gs = aggregate_dicts(aggr_grad)
             if it % k == 0:  # victim이 property를 가질 때 / 안 가질때 aggregated gradient를 수집
                 test_pg.append(test_gs)
@@ -758,19 +650,11 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             else:
                 test_cluster_npg.append(test_pack)'''
 
-            for j in range(n_clusters):
-
-                if len(aggr_grad_cluster[j]) == 0:
-                    continue
-
-                test_gs = aggregate_dicts(aggr_grad_cluster[j])
-                if j == cur_index:
-                    if it % k == 0:
-                        test_cluster_pg[j].append(test_gs)
-                    else:
-                        test_cluster_npg[j].append(test_gs)
-                else:
-                    test_cluster_npg[j].append(test_gs)
+            test_gs = aggregate_dicts(aggr_grad_cluster[cur_index])
+            if it % k == 0:
+                test_cluster_pg[cur_index].append(test_gs)
+            else:
+                test_cluster_npg[cur_index].append(test_gs)
 
             if n_workers > 2:  # 학습용 aggregated gradient 생성
                 for train_mix_gen in train_mix_gens:
@@ -785,18 +669,18 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                                                iters=8, n_workers=n_workers)
 
                 for train_mix_gen in train_mix_gens:  # victim이 속한 cluster의 모델에 대해서만 학습용 aggregated gradient 생성. 해당 cluster 모델에 참여하는 디바이스 수를 안다고 가정하고 수행 (추후 수정 필요함)
-                    gradient_getter_with_gen_multi_cluster(train_mix_gen, train_nonprop_gen, train_cluster_pg, train_cluster_npg,
-                                                   cluster_networks, 1,
+                    gradient_getter_with_gen_multi(train_mix_gen, train_nonprop_gen, train_cluster_pg[cur_index],
+                                                   cluster_networks[cur_index],
                                                    device=device,
-                                                   iters=2, n_workers=n_workers, n_clusters=n_clusters)
-                gradient_getter_with_gen_multi_cluster(train_prop_gen, train_nonprop_gen, train_cluster_pg, train_cluster_npg,
-                                               cluster_networks, 1,
+                                                   iters=2, n_workers=len(aggr_grad_cluster[cur_index]))
+                gradient_getter_with_gen_multi(train_prop_gen, train_nonprop_gen, train_cluster_pg[cur_index],
+                                               cluster_networks[cur_index],
                                                device=device,
-                                               iters=2, n_workers=n_workers, n_clusters=n_clusters)
-                gradient_getter_with_gen_multi_cluster(train_nonprop_gen, train_nonprop_gen, train_cluster_pg, train_cluster_npg,
-                                               cluster_networks, 0,
+                                               iters=2, n_workers=len(aggr_grad_cluster[cur_index]))
+                gradient_getter_with_gen_multi(train_nonprop_gen, train_nonprop_gen, train_cluster_npg[cur_index],
+                                               cluster_networks[cur_index],
                                                device=device,
-                                               iters=8, n_workers=n_workers, n_clusters=n_clusters)
+                                               iters=8, n_workers=len(aggr_grad_cluster[cur_index]))
 
             '''else: # we only use multi devices
                 gradient_getter_with_gen(train_prop_gen, train_pg, global_grad_fn, iters=2,
@@ -866,9 +750,15 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             start_time = time.time()
 
     np.savez(SAVE_DIR + f"{filename}.npz",
-             train_pg=train_pg, train_npg=train_npg, test_pg=test_pg, test_npg=test_npg,
-             train_cluster_pg=train_cluster_pg, train_cluster_npg=train_cluster_npg,
-             test_cluster_pg=test_cluster_pg, test_cluster_npg=test_cluster_npg)
+        train_pg=train_pg,
+        train_npg=train_npg,
+        test_pg=test_pg,
+        test_npg=test_npg,
+        train_cluster_pg=train_cluster_pg[cur_index],
+        train_cluster_npg=train_cluster_npg[cur_index],
+        test_cluster_pg=test_cluster_pg[cur_index],
+        test_cluster_npg=test_cluster_npg[cur_index]
+    )
 
 
 if __name__ == '__main__':
