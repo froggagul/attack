@@ -48,13 +48,13 @@ if __name__ == '__main__':
         args.nw,
         args.nc,
         args.ni,
+        args.warmup,
         args.van,
         args.b,
         args.k,
         args.ts,
         args.c,
         seed,
-        warm_up_iters=args.warmup
     )
     evaluate_lfw(filename)
     duration = (time.time() - start_time)

@@ -532,7 +532,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
     start_time = time.time()
     for it in range(num_iteration):  # stages 시작
-        print("Cur iteration: %d", it)
+        print(f"Cur iteration: {it}")
 
         aggr_grad = []
         aggr_grad_cluster = []
@@ -573,7 +573,11 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
             if i != attacker_id:
                 aggr_grad.append(grads_dict)  # 공격자를 제외한 gradient 수집
-
+            else:
+                wandb.log({
+                    "attacker_loss_fl": loss.item()
+                }, it)
+            
             update_global(global_params, grads_dict, lr, 1.0)  # update
 
             # IFCA
@@ -605,6 +609,10 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
             if i != attacker_id:
                 aggr_grad_cluster[min_index].append(grads_list[min_index])
+            else:
+                wandb.log({
+                    "attacker_loss_ifca": loss.item()
+                }, it)
 
             if i == victim_id:  # victim이 속한 cluster index
                 cur_index = min_index
@@ -731,8 +739,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             wandb.log({
                 "test_accuracy": val_acc / val_batches * 100,
                 "ifca_test_accuracy": val_IFCA_acc / val_batches * 100,
-                "epoch": it,
-            })
+            }, it)
             network_global.train()
             for j in range(n_clusters):
                 cluster_networks[j].train()
@@ -784,6 +791,3 @@ if __name__ == '__main__':
               seed)
 
     duration = (time.time() - start_time)
-    # wandb.log({"loss": loss})
-
-    # wandb.log("SGD ended in %0.2f hour (%.3f sec) " % (duration / float(3600), duration))

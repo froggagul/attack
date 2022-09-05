@@ -49,10 +49,9 @@ def inference_attack(train_pg, train_npg, test_pg, test_npg, norm=True, scale=Tr
     y_pred = clf.predict(X_test)
     print('\n' + classification_report(y_true=y_test, y_pred=y_pred))
     wandb.log({
-        "type": "inference_attack",
-        "AUC": roc_auc_score(y_true=y_test, y_score=y_score),
+        "AUC_fl": roc_auc_score(y_true=y_test, y_score=y_score),
     })
-    print('AUC: %s', roc_auc_score(y_true=y_test, y_score=y_score))
+    print('AUC_fl', roc_auc_score(y_true=y_test, y_score=y_score))
 
 def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, scale=True):
 
@@ -60,6 +59,9 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
     raw_train_npg = np.asarray(train_npg)
     raw_test_pg = np.asarray(test_pg)
     raw_test_npg = np.asarray(test_npg)
+
+    print(("raw_train ps-nps {}-{} ** raw_test ps-nps {}-{}".format(raw_train_pg.shape, raw_train_npg.shape, raw_test_pg.shape,
+                                                           raw_test_npg.shape)))
 
     n_clusters = len(raw_train_pg)
     n_train_pg = 0
@@ -176,10 +178,9 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
         final_pred.append(score_pred[max_index][data])
 
     print('\n' + classification_report(y_true=y_test_all, y_pred=final_pred))
-    print('AUC: %s', roc_auc_score(y_true=y_test_all, y_score=final_score))
+    print('AUC_cluster_1', roc_auc_score(y_true=y_test_all, y_score=final_score))
     wandb.log({
-        "type": "inference_attack",
-        "AUC": roc_auc_score(y_true=y_test, y_score=y_score),
+        "AUC_cluster_1": roc_auc_score(y_true=y_test, y_score=y_score),
     })
 
 
@@ -229,10 +230,9 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
 
     print('\n' + classification_report(y_true=y_test_all, y_pred=y_pred))
     wandb.log({
-        "type": "inference_attack_merged",
-        "AUC": roc_auc_score(y_true=y_test_all, y_score=y_score),
+        "AUC_cluster_2": roc_auc_score(y_true=y_test_all, y_score=y_score),
     })
-    print('AUC: %s', roc_auc_score(y_true=y_test_all, y_score=y_score))
+    print('AUC_cluster_2', roc_auc_score(y_true=y_test_all, y_score=y_score))
 
 def evaluate_lfw(filename):
     # filename = "lfw_psMT_{}_{}_{}_alpha{}_k{}_nc{}_n{}_passive_IFCA".format(task, attr, prop_id, 0, k, 3, n_workers)
@@ -243,15 +243,11 @@ def evaluate_lfw(filename):
     inference_attack(train_pg, train_npg, test_pg, test_npg)
     inference_attack_cluster(train_cluster_pg, train_cluster_npg, test_cluster_pg, test_cluster_npg)
 
-
 if __name__ == '__main__':
+    wandb.init(project = 'attack', entity = 'froggagul')
     parser = argparse.ArgumentParser(description='Distributed SGD')
-    parser.add_argument('-t', help='Main task', default='gender')
-    parser.add_argument('-a', help='Target attribute', default='race')
-    parser.add_argument('--pi', help='Property id', type=int, default=2)  # black (2)
-    parser.add_argument('-nw', help='# of workers', type=int, default=30)
-    parser.add_argument('-k', help='k', type=int, default=5)
+    parser.add_argument('-f', help='file name')
 
     args = parser.parse_args()
 
-    evaluate_lfw(args.t, args.a, args.pi, args.nw, args.k)
+    evaluate_lfw(args.f)
