@@ -574,7 +574,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             if i != attacker_id:
                 aggr_grad.append(grads_dict)  # 공격자를 제외한 gradient 수집
 
-            update_global(global_params, grads_dict, lr, 1.0)  # update
+            update_global(global_params, grads_dict, lr, 1.0) # update
 
             # IFCA
             network_IFCA = worker_networks_IFCA[i]
@@ -678,7 +678,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                 gradient_getter_with_gen(train_nonprop_gen, train_npg, global_grad_fn, iters=8,
                                          param_names=params_names)'''
 
-        if (it + 1) % 100 == 0 and it > 0:  # validation
+        if (it + 1) % 1 == 0 and it > 0:  # validation
 
             network_global.eval()
             for j in range(n_clusters):
@@ -732,7 +732,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                 "test_accuracy": val_acc / val_batches * 100,
                 "ifca_test_accuracy": val_IFCA_acc / val_batches * 100,
                 "epoch": it,
-            })
+            }, it)
             network_global.train()
             for j in range(n_clusters):
                 cluster_networks[j].train()
@@ -744,10 +744,10 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
         train_npg=train_npg,
         test_pg=test_pg,
         test_npg=test_npg,
-        train_cluster_pg=train_cluster_pg[cur_index],
-        train_cluster_npg=train_cluster_npg[cur_index],
-        test_cluster_pg=test_cluster_pg[cur_index],
-        test_cluster_npg=test_cluster_npg[cur_index]
+        train_cluster_pg=train_cluster_pg,
+        train_cluster_npg=train_cluster_npg,
+        test_cluster_pg=test_cluster_pg,
+        test_cluster_npg=test_cluster_npg
     )
 
 
