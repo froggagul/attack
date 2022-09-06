@@ -24,6 +24,8 @@ if __name__ == '__main__':
     parser.add_argument('-k', help='k', type=int, default=5)
     parser.add_argument('-s', help='seed (-1 for time-dependent seed)', type=int, default=12345)
     parser.add_argument('--warmup', help='warmup iteration', type=int, default=100)
+    parser.add_argument('-ds', help='data seed (-1 for time-dependent seed)', type=int, default=54321)
+    parser.add_argument('-ms', help='main seed (-1 for time-dependent seed)', type=int, default=12345)
     parser.add_argument('--ts', help='Train size', type=float, default=0.3)
     parser.add_argument('-c', help='CUDA num (-1 for CPU-only)', default=-1)
 
@@ -54,9 +56,12 @@ if __name__ == '__main__':
         args.k,
         args.ts,
         args.c,
-        seed,
+        args.ds,
+        args.ms,
     )
+
+    print(f'filename: {filename}')
     evaluate_lfw(filename)
     duration = (time.time() - start_time)
 
-    wandb.log("SGD ended in %0.2f hour (%.3f sec) " % (duration / float(3600), duration))
+    print("SGD ended in %0.2f hour (%.3f sec) " % (duration / float(3600), duration))

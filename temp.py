@@ -14,9 +14,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-import wandb
-import uuid
-
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 from collections import OrderedDict
@@ -33,6 +30,32 @@ if not os.path.exists(SAVE_DIR):
 # seed가 항상 동일하게 작용하도록 (재현성)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
+
+# 로깅 설정
+# 폴더 생성
+os.makedirs("./log_1", exist_ok=True)
+
+# logger instance 생성
+logger = logging.getLogger(__name__)
+
+# formatter 생성
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+
+# handler 생성 (stream, file)
+streamHandler = logging.StreamHandler()
+fileHandler = logging.FileHandler("./log_1/" + datetime.now().strftime('log_fl_%Y_%m_%d_%H_%M.log'))
+
+# logger instance에 fomatter 설정
+streamHandler.setFormatter(formatter)
+fileHandler.setFormatter(formatter)
+
+# logger instance에 handler 설정
+logger.addHandler(streamHandler)
+logger.addHandler(fileHandler)
+
+# logger instnace로 log 찍기
+logger.setLevel(level=logging.INFO)
+
 
 def np_to_one_hot(targets, classes):  # 정수 numpy to one-hot encoding tensor
     targets_tensor = torch.from_numpy(targets.astype(np.int64))
@@ -135,65 +158,34 @@ def gen_batch(x, y, n=1):
             yield v[ndx:min(ndx + n, l)], y_slice[ndx:min(ndx + n, l)]
 
 
-def train_lfw(
-    task='gender',
-    attr='race',
-    prop_id=2,
-    p_prop=0.5,
-    n_workers=2,
-    n_clusters=3,
-    num_iteration=3000,
-    warm_up_iters=100,
-    victim_all_nonprop=False,
-    balance=False,
-    k=5,
-    train_size=0.3,
-    cuda=-1,
-    seed_data=54321,
-    seed_main=12345,
-    ):
-
+def train_lfw(task='gender', attr='race', prop_id=2, p_prop=0.5, n_workers=2, n_clusters=3, num_iteration=3000,
+              victim_all_nonprop=False, balance=False, k=5, train_size=0.3, cuda=-1, seed_data=54321, seed_main=12345):
     x, y, prop = load_lfw_with_attrs(task, attr)
-    # x : img, y : task label, prop: attr label
     prop_dict = MULTI_ATTRS[attr] if attr in MULTI_ATTRS else BINARY_ATTRS[attr]
 
-    print('Training {} and infering {} property {} with {} data'.format(task, attr, prop_dict[prop_id], len(x)))
+    logger.info('Training {} and infering {} property {} with {} data'.format(task, attr, prop_dict[prop_id], len(x)))
 
     x = np.asarray(x, dtype=np.float32)
     y = np.asarray(y, dtype=np.int32)
-    # prop = np.asarray(prop, dtype=np.int32) == prop_id  # property label인지 (1) 아닌지 (0)
-    prop = np.where(np.asarray(prop, dtype=np.int32) == prop_id, 1, 0)
-    # indices = np.arange(len(x))
-    # prop_indices = indices[prop == prop_id]
-    # nonprop_indices = indices[prop != prop_id]
+    prop = np.asarray(prop, dtype=np.int32)  # property label인지 (1) 아닌지 (0)
 
-    # prop[prop_indices] = 1
-    # prop[nonprop_indices] = 0
+    indices = np.arange(len(x))
+    prop_indices = indices[prop == prop_id]
+    nonprop_indices = indices[prop != prop_id]
 
-    filename = uuid.uuid1()
-    # "lfw_psMT_{}_{}_{}_alpha{}_k{}_nc{}".format(task, attr, prop_id, 0, k, n_clusters)
+    prop[prop_indices] = 1
+    prop[nonprop_indices] = 0
 
-    # if n_workers > 2:
-    #     filename += '_n{}'.format(n_workers)
+    filename = "lfw_psMT_{}_{}_{}_alpha{}_k{}_nc{}".format(task, attr, prop_id, 0, k, n_clusters)
 
-    train_multi_task_ps(
-        (x, y, prop),
-        input_shape=(3, 62, 47),
-        p_prop=p_prop,
-        filename=filename,
-        n_workers=n_workers,
-        n_clusters=n_clusters,
-        k=k,
-        num_iteration=num_iteration,
-        victim_all_nonprop=victim_all_nonprop,
-        train_size=train_size,
-        cuda=cuda,
-        seed_data=seed_data,
-        seed_main=seed_main,
-        warm_up_iters=warm_up_iters
-    )
+    if n_workers > 2:
+        filename += '_n{}'.format(n_workers)
 
-    return filename
+    train_multi_task_ps((x, y, prop), input_shape=(3, 62, 47), p_prop=p_prop,  # balance=balance,
+                        filename=filename, n_workers=n_workers, n_clusters=n_clusters, k=k,
+                        num_iteration=num_iteration, victim_all_nonprop=victim_all_nonprop,
+                        train_size=train_size, cuda=cuda, seed_data=seed_data, seed_main=seed_main)
+
 
 def build_worker(input_shape, classes=2, lr=None, device='cpu'):  # worker 1개 생성하고 초기화
 
@@ -215,7 +207,7 @@ def mix_inf_data(p_inputs, p_targets, np_inputs, np_targets, batchsize,
     p_batchsize = int(mix_p * batchsize)
     np_batchsize = batchsize - p_batchsize
 
-    print('Mixing {} prop data with {} non prop data'.format(p_batchsize, np_batchsize))
+    logger.info('Mixing {} prop data with {} non prop data'.format(p_batchsize, np_batchsize))
 
     p_gen = inf_data(p_inputs, p_targets, p_batchsize, shuffle=True)
     np_gen = inf_data(np_inputs, np_targets, np_batchsize, shuffle=True)
@@ -397,20 +389,17 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
     if os.path.exists(file_name):
         with open(file_name, 'rb') as f:
             splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = pickle.load(f)
-            print("Temp dataset loaded!")
+            logger.info("Temp dataset loaded!")
     else:
-        # non-iid dataset 생성 --> worker별로 데이터셋이 할당됨
-        splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = prepare_data_biased(
-            data,
-            train_size,
-            n_workers,
-            seed=seed_data,
-            victim_all_nonprop=victim_all_nonprop,
-            p_prop=p_prop
-        )
+        splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = prepare_data_biased(data, train_size,
+                                                                                                       n_workers,
+                                                                                                       seed=seed_data,
+                                                                                                       # non-iid dataset 생성 --> worker별로 데이터셋이 할당됨
+                                                                                                       victim_all_nonprop=victim_all_nonprop,
+                                                                                                       p_prop=p_prop)
         with open(file_name, 'wb') as f:
             pickle.dump((splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test), f)
-            print("Temp dataset dumped!")
+            logger.info("Temp dataset dumped!")
 
     torch.manual_seed(seed_main)
     torch.cuda.manual_seed(seed_main)
@@ -463,7 +452,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             data_gen = inf_data(splitted_X[i], split_y[:, 0], y_b=split_y[:, 1], batchsize=32, shuffle=True)
             data_gens.append(data_gen)
 
-            print('Participant {} with {} data'.format(i, len(splitted_X[i])))
+            logger.info('Participant {} with {} data'.format(i, len(splitted_X[i])))
         elif i == victim_id:  # victim
             vic_X = np.vstack([splitted_X[i][0], splitted_X[i][1]])
             vic_y = np.concatenate([splitted_y[i][0][:, 0], splitted_y[i][1][:, 0]])
@@ -474,12 +463,12 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             data_gen_np = inf_data(splitted_X[i][1], splitted_y[i][1][:, 0], batchsize=32, shuffle=True)
 
             data_gens.append(data_gen)
-            print('Participant {} with {} data'.format(i, len(splitted_X[i][0]) + len(splitted_X[i][1])))
+            logger.info('Participant {} with {} data'.format(i, len(splitted_X[i][0]) + len(splitted_X[i][1])))
         else:
             data_gen = inf_data(splitted_X[i], splitted_y[i][:, 0], batchsize=32, shuffle=True)
             data_gens.append(data_gen)
 
-            print('Participant {} with {} data'.format(i, len(splitted_X[i])))
+            logger.info('Participant {} with {} data'.format(i, len(splitted_X[i])))
 
         network = build_worker(input_shape, classes=classes, lr=lr, device=device)  # worker들 생성
         worker_networks.append(network)
@@ -501,7 +490,6 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
     test_pg, test_npg = [], []
     train_cluster_pg, train_cluster_npg = [], []
     test_cluster_pg, test_cluster_npg = [], []
-
     for j in range(n_clusters):
         train_cluster_pg.append([])
         train_cluster_npg.append([])
@@ -534,7 +522,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
     nonprop_indices = indices[p_test == 0]
     n_nonprop = len(nonprop_indices)
 
-    print('Attacker prop data {}, non prop data {}'.format(len(train_prop_indices), n_nonprop))
+    logger.info('Attacker prop data {}, non prop data {}'.format(len(train_prop_indices), n_nonprop))
     train_nonprop_gen = inf_data(X_test[nonprop_indices], y_test[nonprop_indices], 32, shuffle=True)
 
     train_mix_gens = []  # 학습용 aggregated gradient를 생성할때 다양한 property distribution을 가진 상황을 가정하여 만든 data generator
@@ -545,7 +533,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
     start_time = time.time()
     for it in range(num_iteration):  # stages 시작
-        print(f"Cur iteration: {it}")
+        logger.info("Cur iteration: %d", it)
 
         aggr_grad = []
         aggr_grad_cluster = []
@@ -586,11 +574,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
             if i != attacker_id:
                 aggr_grad.append(grads_dict)  # 공격자를 제외한 gradient 수집
-            else:
-                wandb.log({
-                    "attacker_loss_fl": loss.item()
-                }, it)
-            
+
             update_global(global_params, grads_dict, lr, 1.0)  # update
 
             # IFCA
@@ -622,10 +606,6 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
             if i != attacker_id:
                 aggr_grad_cluster[min_index].append(grads_list[min_index])
-            else:
-                wandb.log({
-                    "attacker_loss_ifca": loss.item()
-                }, it)
 
             if i == victim_id:  # victim이 속한 cluster index
                 cur_index = min_index
@@ -701,7 +681,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                 gradient_getter_with_gen(train_nonprop_gen, train_npg, global_grad_fn, iters=8,
                                          param_names=params_names)'''
 
-        if (it + 1) % 1 == 0 and it > 0:  # validation
+        if (it + 1) % 100 == 0 and it > 0:  # validation
 
             network_global.eval()
             for j in range(n_clusters):
@@ -751,30 +731,22 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                     val_IFCA_acc += acc
 
             print_index(cluster_global_index, result_count)
-            print("Iteration {} of {} took {:.3f}s\n".format(it + 1, num_iteration,
+
+            logger.info("Iteration {} of {} took {:.3f}s\n".format(it + 1, num_iteration,
                                                                    time.time() - start_time))
-            print("  test accuracy:\t\t{:.2f} %\n".format(val_acc / val_batches * 100))
-            print("  IFCA test accuracy:\t\t{:.2f} %\n".format(val_IFCA_acc / val_batches * 100))
-            wandb.log({
-                "test_accuracy": val_acc / val_batches * 100,
-                "ifca_test_accuracy": val_IFCA_acc / val_batches * 100,
-            }, it)
+            logger.info("  test accuracy:\t\t{:.2f} %\n".format(val_acc / val_batches * 100))
+            logger.info("  IFCA test accuracy:\t\t{:.2f} %\n".format(val_IFCA_acc / val_batches * 100))
+
             network_global.train()
             for j in range(n_clusters):
                 cluster_networks[j].train()
 
             start_time = time.time()
 
-    np.savez(SAVE_DIR + f"{filename}.npz",
-        train_pg=train_pg,
-        train_npg=train_npg,
-        test_pg=test_pg,
-        test_npg=test_npg,
-        train_cluster_pg=train_cluster_pg,
-        train_cluster_npg=train_cluster_npg,
-        test_cluster_pg=test_cluster_pg,
-        test_cluster_npg=test_cluster_npg
-    )
+    np.savez(SAVE_DIR + "{}.npz".format(filename + '_passive_IFCA'),
+             train_pg=train_pg, train_npg=train_npg, test_pg=test_pg, test_npg=test_npg,
+             train_cluster_pg=train_cluster_pg[cur_index], train_cluster_npg=train_cluster_npg[cur_index],
+             test_cluster_pg=test_cluster_pg[cur_index], test_cluster_npg=test_cluster_npg[cur_index])
 
 
 if __name__ == '__main__':
@@ -786,7 +758,7 @@ if __name__ == '__main__':
     parser.add_argument('-nw', help='# of workers', type=int, default=30)
     parser.add_argument('-nc', help='# of clusters', type=int, default=3)
     parser.add_argument('-ni', help='# of iterations', type=int, default=6000)
-    parser.add_argument('--van', help='victim_all_nonproperty', action='store_true') # default false
+    parser.add_argument('--van', help='victim_all_nonproperty', action='store_true')
     parser.add_argument('--b', help='balance', action='store_true')
     parser.add_argument('-k', help='k', type=int, default=5)
     parser.add_argument('-ds', help='data seed (-1 for time-dependent seed)', type=int, default=54321)
@@ -797,14 +769,17 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.ds == -1:
-        args.ds = time.time()
+        seed_data = time.time()
+    else:
+        seed_data = args.ds
 
     if args.ms == -1:
-        args.ms = time.time() + 1234
-
-    wandb.config.update(args)
+        seed_main = time.time() + 1234
+    else:
+        seed_main = args.ds
 
     start_time = time.time()
     train_lfw(args.t, args.a, args.pi, args.pp, args.nw, args.nc, args.ni, args.van, args.b, args.k, args.ts, args.c,
-              args.ds, args.ms)
+              seed_data, seed_main)
     duration = (time.time() - start_time)
+    logger.info("SGD ended in %0.2f hour (%.3f sec) " % (duration / float(3600), duration))
