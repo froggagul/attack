@@ -180,7 +180,7 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
     print('\n' + classification_report(y_true=y_test_all, y_pred=final_pred))
     print('AUC_cluster_1', roc_auc_score(y_true=y_test_all, y_score=final_score))
     wandb.log({
-        "AUC_cluster_1": roc_auc_score(y_true=y_test, y_score=y_score),
+        "AUC_cluster_1": roc_auc_score(y_true=y_test_all, y_score=final_score),
     })
 
 

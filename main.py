@@ -9,7 +9,7 @@ from inference_attack_IFCA_old import evaluate_lfw
 
 
 if __name__ == '__main__':
-    wandb.init(project='attack')
+    wandb.init(project='attack', entity='froggagul')
 
     parser = argparse.ArgumentParser(description='Distributed SGD')
     parser.add_argument('-t', help='Main task', default='gender')
