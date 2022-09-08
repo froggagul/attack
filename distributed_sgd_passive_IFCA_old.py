@@ -270,7 +270,7 @@ def print_index(index_list, count):
         else:
             print_string = print_string + str(v) + ' | '
 
-    logger.info(print_string)
+    print(print_string)
 
 '''def gradient_getter(data, p_g, p_indices, fn, batch_size=32, shuffle=True):
     X, y = data
@@ -394,13 +394,13 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
     file_name = "data/temp_dataset_n" + str(n_workers)  # worker 수에 따라 dataset 생성
 
-    if os.path.exists(file_name):
-        with open(file_name, 'rb') as f:
-            splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = pickle.load(f)
-            print("Temp dataset loaded!")
-    else:
-        # non-iid dataset 생성 --> worker별로 데이터셋이 할당됨
-        splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = prepare_data_biased(
+#     if os.path.exists(file_name):
+#         with open(file_name, 'rb') as f:
+#             splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = pickle.load(f)
+#             print("Temp dataset loaded!")
+#     else:
+#         # non-iid dataset 생성 --> worker별로 데이터셋이 할당됨
+    splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = prepare_data_biased(
             data,
             train_size,
             n_workers,
@@ -408,9 +408,9 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             victim_all_nonprop=victim_all_nonprop,
             p_prop=p_prop
         )
-        with open(file_name, 'wb') as f:
-            pickle.dump((splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test), f)
-            print("Temp dataset dumped!")
+        # with open(file_name, 'wb') as f:
+            # pickle.dump((splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test), f)
+            # print("Temp dataset dumped!")
 
     torch.manual_seed(seed_main)
     torch.cuda.manual_seed(seed_main)
