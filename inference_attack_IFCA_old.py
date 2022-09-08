@@ -14,7 +14,9 @@ import wandb
 
 SAVE_DIR = './grads/'
 
-def inference_attack(train_pg, train_npg, test_pg, test_npg, norm=True, scale=True):
+def inference_attack(train_pg, train_npg, test_pg, test_npg, norm=True, scale=True, type = 'fl'):
+
+    assert type in ['fl', 'cluster']
 
     train_pg = np.asarray(train_pg)
     train_npg = np.asarray(train_npg)
@@ -49,9 +51,9 @@ def inference_attack(train_pg, train_npg, test_pg, test_npg, norm=True, scale=Tr
     y_pred = clf.predict(X_test)
     print('\n' + classification_report(y_true=y_test, y_pred=y_pred))
     wandb.log({
-        "AUC_fl": roc_auc_score(y_true=y_test, y_score=y_score),
+        f"AUC_{type}": roc_auc_score(y_true=y_test, y_score=y_score),
     })
-    print('AUC_fl', roc_auc_score(y_true=y_test, y_score=y_score))
+    print(f'AUC_{type}', roc_auc_score(y_true=y_test, y_score=y_score))
 
 def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, scale=True):
 
@@ -238,10 +240,28 @@ def evaluate_lfw(filename):
     # filename = "lfw_psMT_{}_{}_{}_alpha{}_k{}_nc{}_n{}_passive_IFCA".format(task, attr, prop_id, 0, k, 3, n_workers)
 
     with np.load(SAVE_DIR + '{}.npz'.format(filename), allow_pickle=True) as f:
-        train_pg, train_npg, test_pg, test_npg, train_cluster_pg, train_cluster_npg, test_cluster_pg, test_cluster_npg,\
-            = f['train_pg'], f['train_npg'], f['test_pg'], f['test_npg'], f['train_cluster_pg'], f['train_cluster_npg'], f['test_cluster_pg'], f['test_cluster_npg']
-    inference_attack(train_pg, train_npg, test_pg, test_npg)
-    inference_attack_cluster(train_cluster_pg, train_cluster_npg, test_cluster_pg, test_cluster_npg)
+        train_pg, train_npg, test_pg, test_npg, train_cluster_pg, train_cluster_npg, test_cluster_pg, test_cluster_npg, victim_index\
+            = f['train_pg'], f['train_npg'], f['test_pg'], f['test_npg'], f['train_cluster_pg'], f['train_cluster_npg'], f['test_cluster_pg'], f['test_cluster_npg'], f['victim_index']
+    inference_attack(
+        train_pg,
+        train_npg,
+        test_pg,
+        test_npg,
+        type='fl'
+    )
+    inference_attack(
+        train_cluster_pg[victim_index],
+        train_cluster_npg[victim_index],
+        test_cluster_pg[victim_index],
+        test_cluster_npg[victim_index],
+        type='cluster'
+    )
+    inference_attack_cluster(
+        train_cluster_pg,
+        train_cluster_npg,
+        test_cluster_pg,
+        test_cluster_npg
+    )
 
 if __name__ == '__main__':
     wandb.init(project = 'attack', entity = 'froggagul')
