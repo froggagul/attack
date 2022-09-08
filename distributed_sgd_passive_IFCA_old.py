@@ -773,7 +773,8 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
         train_cluster_pg=train_cluster_pg,
         train_cluster_npg=train_cluster_npg,
         test_cluster_pg=test_cluster_pg,
-        test_cluster_npg=test_cluster_npg
+        test_cluster_npg=test_cluster_npg,
+        victim_index=cur_index
     )
 
 
