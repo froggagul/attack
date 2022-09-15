@@ -16,7 +16,7 @@ SAVE_DIR = './grads/'
 
 def inference_attack(train_pg, train_npg, test_pg, test_npg, norm=True, scale=True, type = 'fl'):
 
-    assert type in ['fl', 'cluster']
+    assert type in ['fl', 'cluster_3']
 
     train_pg = np.asarray(train_pg)
     train_npg = np.asarray(train_npg)
@@ -98,10 +98,13 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
                 normalizer = Normalizer(norm='l2')
                 X_train = normalizer.transform(X_train)
 
+            # print(X_train.shape)
             if not len(X_train_all):
                 X_train_all = X_train
             else:
+                # if (X_train.shape[0] > 0):
                 X_train_all = np.concatenate((X_train_all, X_train), axis=0)
+        
         scaler = StandardScaler()
         scaler.fit(X_train_all)
 
@@ -202,15 +205,17 @@ def inference_attack_cluster(train_pg, train_npg, test_pg, test_npg, norm=True, 
             X_train_all = X_train
             y_train_all = y_train
         else:
-            X_train_all = np.concatenate((X_train_all, X_train), axis=0)
-            y_train_all = np.concatenate((y_train_all, y_train), axis=0)
+            if (X_train.shape[0] > 0):
+                y_train_all = np.concatenate((y_train_all, y_train), axis=0)
+                X_train_all = np.concatenate((X_train_all, X_train), axis=0)
 
         if not len(X_test_all):
             X_test_all = X_test
             y_test_all = y_test
         else:
-            X_test_all = np.concatenate((X_test_all, X_test), axis=0)
-            y_test_all = np.concatenate((y_test_all, y_test), axis=0)
+            if (X_test.shape[0] > 0):
+                X_test_all = np.concatenate((X_test_all, X_test), axis=0)
+                y_test_all = np.concatenate((y_test_all, y_test), axis=0)
 
     X_train = np.abs(X_train_all)
     X_test = np.abs(X_test_all)
@@ -254,7 +259,7 @@ def evaluate_lfw(filename):
         train_cluster_npg[victim_index],
         test_cluster_pg[victim_index],
         test_cluster_npg[victim_index],
-        type='cluster'
+        type='cluster_3'
     )
     inference_attack_cluster(
         train_cluster_pg,

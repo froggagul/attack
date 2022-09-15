@@ -260,7 +260,7 @@ def add_nonprop(test_prop_indices, nonprop_indices, p_prop=0.7):
     nonprop_indices = np.setdiff1d(nonprop_indices, sampled_non_prop)
     return sampled_non_prop, nonprop_indices
 
-def print_index(index_list, count):
+def print_index(index_list, count, victim_id, it):
     count[0] += 1
     print_string = str(count[0]) + ': '
 
@@ -269,7 +269,9 @@ def print_index(index_list, count):
             print_string = print_string + str(v)
         else:
             print_string = print_string + str(v) + ' | '
-
+    wandb.log({
+        f"victim_cluster_{count[0]}": index_list[victim_id],
+    }, it)
     print(print_string)
 
 '''def gradient_getter(data, p_g, p_indices, fn, batch_size=32, shuffle=True):
@@ -587,6 +589,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             if i != attacker_id:
                 aggr_grad.append(grads_dict)  # 공격자를 제외한 gradient 수집
             else:
+                print('attacker ', it, " - ", loss.item())
                 wandb.log({
                     "attacker_loss_fl": loss.item()
                 }, it)
@@ -638,9 +641,9 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             w_index = cluster_global_index[i]
             update_global(cluster_params[w_index], cluster_global_grads[i], lr * 32, cluster_global_isize[i])
         result_count = [0]
-        print_index(cluster_global_index, result_count)
+        print_index(cluster_global_index, result_count, victim_id, it)
 
-        warm_up_iters = 100
+        # warm_up_iters = 100
         if it >= warm_up_iters:
             test_gs = aggregate_dicts(aggr_grad)
             if it % k == 0:  # victim이 property를 가질 때 / 안 가질때 aggregated gradient를 수집
@@ -750,7 +753,8 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                     acc = (y == y_max_idx).sum() / y.size(0)
                     val_IFCA_acc += acc
 
-            print_index(cluster_global_index, result_count)
+            print_index(cluster_global_index, result_count, victim_id, it)
+            
             print("Iteration {} of {} took {:.3f}s\n".format(it + 1, num_iteration,
                                                                    time.time() - start_time))
             print("  test accuracy:\t\t{:.2f} %\n".format(val_acc / val_batches * 100))
