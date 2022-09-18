@@ -16,6 +16,7 @@ import torch.optim as optim
 
 import wandb
 import uuid
+from torch.utils.data import Dataset, DataLoader, TensorDataset
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
@@ -23,6 +24,8 @@ from collections import OrderedDict
 
 from split_data import prepare_data_biased
 from load_lfw import load_lfw_with_attrs, BINARY_ATTRS, MULTI_ATTRS
+
+from tensorflow_privacy.privacy.analysis.compute_noise_from_budget_lib import compute_noise
 
 # 저장 디렉토리
 SAVE_DIR = './grads/'
@@ -94,7 +97,7 @@ class nm_cnn(nn.Module):  # 최종 classifier, optimizer 등
         super().__init__()
         self.fe = cnn_feat_extractor(input_shape, n)
         self.fc2 = nn.Linear(256, classes)
-        self.criterion = nm_loss
+        self.criterion = nn.CrossEntropyLoss(reduction='none')
         self.optimizer = optim.SGD(self.parameters(), lr)
 
     def forward(self, x):
@@ -102,13 +105,6 @@ class nm_cnn(nn.Module):  # 최종 classifier, optimizer 등
         x = nn.functional.softmax(self.fc2(x), dim=1)
 
         return x
-
-
-def nm_loss(pred, label):  # loss 정의
-    loss = F.cross_entropy(pred, label)
-
-    return torch.mean(loss)
-
 
 def iterate_minibatches(inputs, targets, batchsize, shuffle=False, targets_B=None):  # batch를 가져옴
     assert len(inputs) == len(targets)
@@ -173,8 +169,10 @@ def train_lfw(
     filename = uuid.uuid1()
     # "lfw_psMT_{}_{}_{}_alpha{}_k{}_nc{}".format(task, attr, prop_id, 0, k, n_clusters)
 
-    # if n_workers > 2:
-    #     filename += '_n{}'.format(n_workers)
+    # train_multi_task_ps((x, y, prop), input_shape=(3, 62, 47), p_prop=p_prop,  # balance=balance,
+    #                     filename=filename, n_workers=n_workers, n_clusters=n_clusters, k=k,
+    #                     num_iteration=num_iteration, victim_all_nonprop=victim_all_nonprop,
+    #                     train_size=train_size, cuda=cuda, seed_data=seed_data, seed_main=seed_main)
 
     train_multi_task_ps(
         (x, y, prop),
@@ -302,7 +300,7 @@ def gradient_getter_with_gen_multi(data_gen1, data_gen2, p_g, fn, device='cpu', 
         fn.optimizer.zero_grad()
         presult = fn(torch.from_numpy(xx).to(device)).cpu()
         ptargets = torch.from_numpy(yy).to(dtype=torch.long)
-        loss = fn.criterion(presult, ptargets)
+        loss = torch.mean(fn.criterion(presult, ptargets))
         loss.backward()
         pgs = {}
         for name, param in fn.named_parameters():
@@ -320,7 +318,7 @@ def gradient_getter_with_gen_multi(data_gen1, data_gen2, p_g, fn, device='cpu', 
             fn.optimizer.zero_grad()
             npresult = fn(torch.from_numpy(xx).to(device)).cpu()
             nptargets = torch.from_numpy(yy).to(dtype=torch.long)
-            loss = fn.criterion(npresult, nptargets)
+            loss = torch.mean(fn.criterion(npresult, nptargets))
             loss.backward()
             npgs = {}
             for name, param in fn.named_parameters():
@@ -381,6 +379,11 @@ def aggregate_dicts(dicts):  # attacker를 제외한 모델의 gradient를 더�
 
     return collect_grads(aggr_dict)
 
+def gaussian_noise(data_shape, s, sigma, device=None):
+    """
+    Gaussian noise
+    """
+    return torch.normal(0, sigma * s, data_shape).to(device)
 
 # active property inference
 def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, warm_up_iters=100,
@@ -394,14 +397,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
     else:
         device = torch.device('cpu')
 
-    file_name = "data/temp_dataset_n" + str(n_workers)  # worker 수에 따라 dataset 생성
 
-#     if os.path.exists(file_name):
-#         with open(file_name, 'rb') as f:
-#             splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = pickle.load(f)
-#             print("Temp dataset loaded!")
-#     else:
-#         # non-iid dataset 생성 --> worker별로 데이터셋이 할당됨
     splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test = prepare_data_biased(
             data,
             train_size,
@@ -410,9 +406,6 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             victim_all_nonprop=victim_all_nonprop,
             p_prop=p_prop
         )
-        # with open(file_name, 'wb') as f:
-            # pickle.dump((splitted_X, splitted_y, X_test, y_test, splitted_X_test, splitted_y_test), f)
-            # print("Temp dataset dumped!")
 
     torch.manual_seed(seed_main)
     torch.cuda.manual_seed(seed_main)
@@ -453,6 +446,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
     worker_networks = []
     worker_params = []
     data_gens = []
+    dataset_gens = []
 
     worker_networks_IFCA = []
     worker_params_IFCA = []
@@ -464,6 +458,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
 
             data_gen = inf_data(splitted_X[i], split_y[:, 0], y_b=split_y[:, 1], batchsize=32, shuffle=True)
             data_gens.append(data_gen)
+            dataset_gens.append([splitted_X[i], split_y[:, 0]])
 
             print('Participant {} with {} data'.format(i, len(splitted_X[i])))
         elif i == victim_id:  # victim
@@ -472,14 +467,18 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             vic_p = np.concatenate([splitted_y[i][0][:, 1], splitted_y[i][1][:, 1]])
 
             data_gen = inf_data(vic_X, vic_y, y_b=vic_p, batchsize=32, shuffle=True)
+            dataset_gens.append([vic_X, vic_y])
             data_gen_p = inf_data(splitted_X[i][0], splitted_y[i][0][:, 0], batchsize=32, shuffle=True)
             data_gen_np = inf_data(splitted_X[i][1], splitted_y[i][1][:, 0], batchsize=32, shuffle=True)
+            dataset_gen_p = [splitted_X[i][0], splitted_y[i][0][:, 0]]
+            dataset_gen_np = [splitted_X[i][1], splitted_y[i][1][:, 0]]
 
             data_gens.append(data_gen)
             print('Participant {} with {} data'.format(i, len(splitted_X[i][0]) + len(splitted_X[i][1])))
         else:
             data_gen = inf_data(splitted_X[i], splitted_y[i][:, 0], batchsize=32, shuffle=True)
             data_gens.append(data_gen)
+            dataset_gens.append([splitted_X[i], splitted_y[i][:, 0]])
 
             print('Participant {} with {} data'.format(i, len(splitted_X[i])))
 
@@ -524,6 +523,27 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                            X_adv[nonprop_indices], splitted_y[attacker_id][nonprop_indices], batchsize=32,
                            mix_p=0.2)  # 공격자용 data generator
 
+    if len(prop_indices) * 4 < len(nonprop_indices): # mix_p=0.2
+        select_index = np.random.choice(len(nonprop_indices), len(prop_indices) * 4, replace=False)
+        px = X_adv[prop_indices]
+        py = splitted_y[attacker_id][prop_indices]
+        npx = X_adv[select_index]
+        npy = splitted_y[attacker_id][select_index]
+    else:
+        select_index = np.random.choice(len(prop_indices), int(len(nonprop_indices) / 4), replace=False)
+        px = X_adv[select_index]
+        py = splitted_y[attacker_id][select_index]
+        npx = X_adv[nonprop_indices]
+        npy = splitted_y[attacker_id][nonprop_indices]
+
+    adv_gen_x = np.vstack([px, npx])
+    adv_gen_y = np.concatenate([py, npy])
+    select_index = np.arange(adv_gen_x.shape[0])
+    np.random.shuffle(select_index)
+    adv_gen_x = adv_gen_x[select_index]
+    adv_gen_y = adv_gen_y[select_index][:, 0]
+    dataset_gen_adv = [adv_gen_x, adv_gen_y]
+
     X_adv = np.vstack([X_adv, X_test])
     y_adv = np.concatenate([y_adv, y_test])
     p_adv = np.concatenate([p_adv, p_test])
@@ -545,6 +565,14 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                                      X_test[nonprop_indices], y_test[nonprop_indices], batchsize=32, mix_p=train_mix_p)
         train_mix_gens.append(train_mix_gen)
 
+    dp_E = 20  # number of local iterations
+    dp_eps = 15.0  # privacy budget
+    dp_delta = 1e-5  # approximate differential privacy: (epsilon, delta)-DP
+    dp_q = 0.05  # sampling rate
+    dp_clip = 15  # clipping norm
+
+    dp_sigma = compute_noise(1, dp_q, dp_eps, dp_E * num_iteration, dp_delta, 1e-5) # compute noise
+
     start_time = time.time()
     for it in range(num_iteration):  # stages 시작
         print(f"Cur iteration: {it}")
@@ -555,93 +583,155 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
             aggr_grad_cluster.append([])
         cluster_global_grads = []
         cluster_global_index = []
-        cluster_global_isize = []
 
         set_local(global_params, worker_params)  # set global model to all devices
         for i in range(n_workers):
             network = worker_networks[i]
             params = worker_params[i]
-            data_gen = data_gens[i]
+            dataset_gen = dataset_gens[i]
 
-            network.optimizer.zero_grad()
-            if i == attacker_id:
-                batch = next(adv_gen)
-                inputs, targets = batch
-                targets = targets[:, 0]
-            elif i == victim_id:  # k번째마다 property가 포함됨, 나머지는 포함 X
-                if it % k == 0:
-                    inputs, targets = next(data_gen_p)
-                else:
-                    inputs, targets = next(data_gen_np)
-            else:
-                inputs, targets = next(data_gen)
-
-            input_tensor = torch.from_numpy(inputs).to(device)
-            pred = network(input_tensor).cpu()
-            targets = torch.from_numpy(targets).to(dtype=torch.long)
-            loss = network.criterion(pred, targets)
-            loss.backward()
-
-            grads_dict = OrderedDict()
-            for param in params.keys():
-                grads_dict[param] = copy.deepcopy(params[param].grad)
-
-            if i != attacker_id:
-                aggr_grad.append(grads_dict)  # 공격자를 제외한 gradient 수집
-            else:
-                print('attacker ', it, " - ", loss.item())
-                wandb.log({
-                    "attacker_loss_fl": loss.item()
-                }, it)
-            
-            update_global(global_params, grads_dict, lr, 1.0)  # update
-
-            # IFCA
+            # IFCA local model
             network_IFCA = worker_networks_IFCA[i]
             params_IFCA = worker_params_IFCA[i]
-            loss_list = []
-            grads_list = []
-            for j in range(n_clusters):
-                # check ith cluster
-                # cluster_network = cluster_networks[j]
-                cluster_param = cluster_params[j]
 
-                set_local_single(cluster_param, params_IFCA)
-                network_IFCA.optimizer.zero_grad()
+            # datset parse
+            if i == attacker_id:
+                cur_dataset = dataset_gen_adv
+            elif i == victim_id:  # k번째마다 property가 포함됨, 나머지는 포함 X
+                if it % k == 0:
+                    cur_dataset = dataset_gen_p
+                else:
+                    cur_dataset = dataset_gen_np
+            else:
+                cur_dataset = dataset_gens[i]
+            torch_dataset = TensorDataset(torch.tensor(cur_dataset[0]), torch.tensor(cur_dataset[1]))
+            data_size = len(torch_dataset)
 
-                pred = network_IFCA(input_tensor).cpu()
-                loss = network_IFCA.criterion(pred, targets)
-                loss.backward()
-                loss_list.append(loss.item())
+            summed_grads = OrderedDict() # summed gradient for current grad (will be added to aggr_grad)
+            for name, param in network.named_parameters():
+                summed_grads[name] = torch.zeros_like(param)
 
-                grads_dict = OrderedDict()
-                for param in params_IFCA.keys():
-                    grads_dict[param] = copy.deepcopy(params_IFCA[param].grad)
-                grads_list.append(grads_dict)
+            summed_grads_IFCA = OrderedDict()  # summed gradient for current IFCA grad (will be added to appropriate aggr_grad_cluster & cluster_global_grads)
+            for name, param in network.named_parameters(): # <check> network -> network_IFCA
+                # <thought> torch.zeros_like return different tensor from param
+                summed_grads_IFCA[name] = torch.zeros_like(param)
 
-            min_loss = min(loss_list)
-            min_index = loss_list.index(min_loss)  # 가장 loss가 낮은 모델에 대해서 update
-            # logger.info("Index: %d", min_index)
+            flag = 1 # choose this device's cluster at first time (first local iter's first batch)
+            for e in range(dp_E): # <check> what this means..
+                idx = np.where(np.random.rand(len(torch_dataset[:][0])) < dp_q)[0]
+                sampled_dataset = TensorDataset(torch_dataset[idx][0], torch_dataset[idx][1])
+                if len(sampled_dataset) == 0: # should be fixed (too small dataset)
+                    continue
+                sample_data_loader = DataLoader(
+                    dataset=sampled_dataset,
+                    batch_size=32,
+                    shuffle=True
+                )
+
+                network.optimizer.zero_grad()
+
+                clipped_grads = {name: torch.zeros_like(param) for name, param in network.named_parameters()}
+                clipped_grads_IFCA = {name: torch.zeros_like(param) for name, param in network.named_parameters()}
+
+                for batch_x, batch_y in sample_data_loader:
+                    input_tensor = batch_x.to(device)
+                    pred = network(input_tensor).cpu()
+                    targets = batch_y.long()
+                    loss = network.criterion(pred, targets)
+
+                    for j in range(loss.size()[0]):
+                        loss[j].backward(retain_graph=True)
+                        # clip gradients
+                        torch.nn.utils.clip_grad_norm_(network.parameters(), max_norm=dp_clip)
+                        for name, param in network.named_parameters():
+                            clipped_grads[name] += param.grad
+                        network.zero_grad()
+
+                    # <check> attacker_loss_fl here
+
+                    # select cluster index at first time (first local iter's first batch)
+                    if flag:
+                        flag = 0
+                        loss_list = []
+                        for cl in range(n_clusters):
+                            cluster_network = cluster_networks[cl]
+                            cluster_param = cluster_params[cl]
+                            set_local_single(cluster_param, params_IFCA) # set cl's cluster to local model
+
+                            network_IFCA.optimizer.zero_grad()
+                            network_IFCA.zero_grad()
+                            pred = network_IFCA(input_tensor).cpu()
+                            loss = network_IFCA.criterion(pred, targets)
+                            loss_list.append(torch.mean(loss).item())
+                            network_IFCA.optimizer.zero_grad()
+                            network_IFCA.zero_grad()
+
+                        min_loss = min(loss_list)
+                        index_IFCA = loss_list.index(min_loss)
+
+                        cluster_global_index.append(index_IFCA)
+                        cluster_network = cluster_networks[index_IFCA]
+                        cluster_param = cluster_params[index_IFCA]
+
+                        set_local_single(cluster_param, params_IFCA)
+                        network_IFCA.optimizer.zero_grad()
+
+                    pred = network_IFCA(input_tensor).cpu()
+                    loss = network_IFCA.criterion(pred, targets)
+
+                    # <check> attcker_loss_ifca here
+
+                    for j in range(loss.size()[0]):
+                        loss[j].backward(retain_graph=True)
+                        # clip gradients
+                        torch.nn.utils.clip_grad_norm_(network_IFCA.parameters(), max_norm=dp_clip)
+                        for name, param in network_IFCA.named_parameters():
+                            clipped_grads_IFCA[name] += param.grad
+                        network_IFCA.zero_grad()
+
+                # add Gaussian noise
+                for name, param in network.named_parameters():
+                    clipped_grads[name] += gaussian_noise(clipped_grads[name].shape, dp_clip, dp_sigma, device=device)
+
+                # scale back
+                for name, param in network.named_parameters():
+                    clipped_grads[name] /= (data_size * dp_q)
+
+                for name, param in network.named_parameters():
+                    summed_grads[name] += copy.deepcopy(clipped_grads[name])
+                    param.grad = clipped_grads[name]
+
+                network.optimizer.step()
+
+                # CFL
+                # add Gaussian noise
+                for name, param in network_IFCA.named_parameters():
+                    clipped_grads_IFCA[name] += gaussian_noise(clipped_grads_IFCA[name].shape, dp_clip, dp_sigma, device=device)
+
+                # scale back
+                for name, param in network_IFCA.named_parameters():
+                    clipped_grads_IFCA[name] /= (data_size * dp_q)
+
+                for name, param in network_IFCA.named_parameters():
+                    summed_grads_IFCA[name] += copy.deepcopy(clipped_grads_IFCA[name])
+                    param.grad = clipped_grads_IFCA[name]
+
+                network_IFCA.optimizer.step()
 
             if i != attacker_id:
-                aggr_grad_cluster[min_index].append(grads_list[min_index])
-            else:
-                wandb.log({
-                    "attacker_loss_ifca": loss.item()
-                }, it)
+                aggr_grad.append(summed_grads)
+                aggr_grad_cluster[index_IFCA].append(summed_grads_IFCA)
 
             if i == victim_id:  # victim이 속한 cluster index
-                cur_index = min_index
+                cur_index = index_IFCA
 
-            cluster_global_grads.append(grads_list[min_index])
-            cluster_global_index.append(min_index)
-            cluster_global_isize.append(inputs.shape[0])
+            cluster_global_grads.append(summed_grads_IFCA)
 
-        for i in range(n_workers):  # update clustered global models
+            update_global(global_params, summed_grads, lr, 1.0)  # update global model
+
+        for i in range(n_workers):  # update CFL global models
             w_index = cluster_global_index[i]
-            update_global(cluster_params[w_index], cluster_global_grads[i], lr * 32, cluster_global_isize[i])
-        result_count = [0]
-        print_index(cluster_global_index, result_count, victim_id, it)
+            update_global(cluster_params[w_index], cluster_global_grads[i], lr, 1.0)
 
         # warm_up_iters = 100
         if it >= warm_up_iters:
@@ -725,7 +815,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                     input_tensor = torch.from_numpy(inputs).to(device)
                     pred = network_global(input_tensor).cpu()
                     targets2 = torch.from_numpy(targets).to(dtype=torch.long)
-                    err = network_global.criterion(pred, targets2)
+                    err = torch.mean(network_global.criterion(pred, targets2))
                     y = torch.from_numpy(targets)
                     y_max_scores, y_max_idx = pred.max(dim=1)
                     acc = (y == y_max_idx).sum() / y.size(0)
@@ -741,7 +831,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, w
                         cluster_network = cluster_networks[j]
                         pred = cluster_network(input_tensor).cpu()
                         loss = cluster_network.criterion(pred, targets2)
-                        loss_list.append(loss.item())
+                        loss_list.append(torch.mean(loss).item())
                         pred_list.append(pred)
                     min_loss = min(loss_list)
                     min_index = loss_list.index(min_loss)
@@ -809,7 +899,5 @@ if __name__ == '__main__':
 
     wandb.config.update(args)
 
-    start_time = time.time()
     train_lfw(args.t, args.a, args.pi, args.pp, args.nw, args.nc, args.ni, args.van, args.b, args.k, args.ts, args.c,
               args.ds, args.ms)
-    duration = (time.time() - start_time)
