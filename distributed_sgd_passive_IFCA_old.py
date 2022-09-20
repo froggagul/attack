@@ -170,7 +170,8 @@ def train_lfw(
     # prop[prop_indices] = 1
     # prop[nonprop_indices] = 0
 
-    filename = uuid.uuid1()
+    filename = wandb.run.name
+    # uuid.uuid1()
     # "lfw_psMT_{}_{}_{}_alpha{}_k{}_nc{}".format(task, attr, prop_id, 0, k, n_clusters)
 
     # if n_workers > 2:
